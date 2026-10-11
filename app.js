@@ -5,7 +5,7 @@
   const KEY = 'budget:v1', THEME_KEY = 'budget:theme';
   let state = load();
   const today = () => C.todayISO();
-  const ui = { tab: 'accueil', month: today().slice(0, 7), opsMonth: today().slice(0, 7), opsFilter: 'all' };
+  const ui = { tab: 'accueil', month: today().slice(0, 7), opsMonth: today().slice(0, 7), opsFilter: 'all', bview: 'mois', year: +today().slice(0, 4), subFilter: 'actif', subSort: 'date', prev: 'accueil' };
 
   /* ---------- stockage ---------- */
   function load() {
@@ -123,9 +123,10 @@
     { id: 'accueil', label: 'Accueil', d: 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z' },
     { id: 'budget', label: 'Budget', d: 'M3 6h18v12H3z M3 7l9 6 9-6' },
     { id: 'fixes', label: 'Fixes', d: 'M17 2l4 4-4 4 M3 11V9a3 3 0 0 1 3-3h15 M7 22l-4-4 4-4 M21 13v2a3 3 0 0 1-3 3H3' },
-    { id: 'ops', label: 'Opérations', d: 'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01' },
-    { id: 'reglages', label: 'Réglages', d: 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6' }
+    { id: 'abos', label: 'Abonnements', d: 'M3 12a9 9 0 1 0 3-6.7 M3 4v5h5 M12 8v4l3 2' },
+    { id: 'ops', label: 'Opérations', d: 'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01' }
   ];
+  const GEAR = 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6';
   function renderTabs() {
     const nav = document.getElementById('tabs'); nav.replaceChildren();
     TABS.forEach((t) => {
@@ -142,17 +143,18 @@
     renderTabs();
     const top = document.getElementById('top'), view = document.getElementById('view');
     top.replaceChildren(); view.replaceChildren();
-    ({ accueil: viewHome, budget: viewBudget, fixes: viewFixes, ops: viewOps, reglages: viewSettings })[ui.tab](top, view);
+    ({ accueil: viewHome, budget: viewBudget, fixes: viewFixes, abos: viewSubs, ops: viewOps, reglages: viewSettings })[ui.tab](top, view);
     window.scrollTo(0, y);
   }
-  const titleBar = (title, ...actions) => h('div', { class: 'titlebar' }, h('h1', {}, title), h('div', { class: 'tb-actions' }, actions));
+  const titleBar = (title, ...actions) => h('div', { class: 'titlebar' }, h('h1', {}, title), h('div', { class: 'tb-actions' }, actions,
+    ui.tab === 'reglages' ? null : h('button', { class: 'icon-btn', 'aria-label': 'Réglages', onclick: () => { ui.prev = ui.tab; go('reglages'); } }, icon(GEAR))));
   function monthSwitch(cur, onChange) {
     return h('div', { class: 'mswitch' },
       h('button', { class: 'icon-btn', 'aria-label': 'Mois précédent', onclick: () => onChange(C.addMonths(cur, -1)) }, '‹'),
       h('strong', {}, monthLabel(cur)),
       h('button', { class: 'icon-btn', 'aria-label': 'Mois suivant', onclick: () => onChange(C.addMonths(cur, 1)) }, '›'));
   }
-  const envName = (id) => { const e = state.envelopes.find((x) => x.id === id); return e ? e.name : null; };
+  const envName = (id) => { if (C.REV_CATS[id]) return C.REV_CATS[id]; const e = state.envelopes.find((x) => x.id === id); return e ? e.name : null; };
 
   /* ====================================================== ACCUEIL ====================================================== */
   function viewHome(top, view) {
@@ -186,7 +188,7 @@
     if (sim.firstNeg) {
       view.append(h('div', { class: 'alert', role: 'alert' },
         h('strong', {}, 'Zone rouge le ' + dayShort(sim.firstNeg.date)),
-        h('span', {}, 'Ton compte descendrait à ' + eur(sim.min.balance) + ' le ' + dayShort(sim.min.date) + '. Réduis une enveloppe ou décale une dépense.'),
+        h('span', {}, 'Ton compte descendrait à ' + eur(sim.min.balance) + ', le ' + dayShort(sim.min.date) + ' Réduis une enveloppe ou décale une dépense.'),
         h('button', { class: 'btn ghost', onclick: () => go('budget') }, 'Ajuster le budget')));
     }
 
@@ -194,7 +196,7 @@
       const steps = [
         ['Indiquer ton solde actuel', bal !== null, () => openBalance('courant')],
         ['Ajouter ton salaire', state.recurring.some((r) => r.kind === 'income'), () => openRecurring(null, 'income')],
-        ['Ajouter tes abonnements et charges fixes', state.recurring.some((r) => r.kind === 'expense' && !r.schedule), () => openRecurring(null, 'expense')],
+        ['Ajouter tes abonnements et charges fixes', state.recurring.some((r) => r.kind === 'expense' && !r.schedule), () => go('abos')],
         ['Créer tes enveloppes (manger, sorties…)', state.envelopes.length > 0, () => { go('budget'); }]
       ];
       if (steps.some((s) => !s[1])) {
@@ -265,7 +267,9 @@
   function viewBudget(top, view) {
     const t = today(), M = ui.month;
     const s = C.monthSummary(state, M, t);
-    top.append(titleBar('Budget', h('button', { class: 'btn small', onclick: () => openEnvelope(null) }, 'Enveloppe')));
+    top.append(titleBar('Budget', ui.bview === 'mois' ? h('button', { class: 'btn small', onclick: () => openEnvelope(null) }, 'Enveloppe') : null));
+    view.append(h('div', { class: 'bswitch' }, seg([['mois', 'Mois'], ['annee', 'Année']], ui.bview, (v) => { ui.bview = v; render(); })));
+    if (ui.bview === 'annee') return viewYear(view);
     view.append(monthSwitch(M, (m) => { ui.month = m; render(); }));
 
     const line = (label, value, cls, sub) => h('li', { class: cls }, h('span', {}, label, sub ? h('small', {}, sub) : null), h('b', {}, value));
@@ -281,7 +285,7 @@
 
     if (!s.rows.length) {
       view.append(h('section', { class: 'empty' },
-        h('p', {}, 'Une enveloppe, c’est un plafond pour une catégorie : manger, sortir, bouger… Tu fixes le montant, l’appli te dit ce qu’il reste.'),
+        h('p', {}, 'Une enveloppe, c’est un plafond pour une catégorie : courses, sorties, vêtements… Tu fixes le montant, l’appli te dit ce qu’il reste. Ce qui revient à date fixe (abonnements, loyer, assurance) va dans Fixes.'),
         h('button', { class: 'btn', onclick: addPresets }, 'Ajouter les enveloppes classiques'),
         h('button', { class: 'btn ghost', onclick: () => openEnvelope(null) }, 'Créer la mienne')));
       return;
@@ -289,8 +293,9 @@
     view.append(h('ul', { class: 'envs' }, s.rows.map((r) => envRow(r, s))));
   }
   function addPresets() {
-    ['Manger', 'Sorties', 'Transport', 'Shopping', 'Divers'].forEach((n) => state.envelopes.push({ id: C.uid(), name: n, type: 'variable', budget: 0, overrides: {} }));
-    commit(); toast('Enveloppes ajoutées. Touche-en une pour fixer son plafond.');
+    ['Courses', 'Restaurants & sorties', 'Transport', 'Santé', 'Vêtements & beauté', 'Loisirs & jeux', 'Études & matériel', 'Cadeaux', 'Voyages', 'Retraits espèces', 'Autres dépenses']
+      .forEach((n) => { if (!state.envelopes.some((e) => e.name === n)) state.envelopes.push({ id: C.uid(), name: n, type: 'variable', budget: 0, overrides: {} }); });
+    commit(); toast('Enveloppes ajoutées. Touche-en une pour fixer son plafond. Les abonnements, le loyer et les assurances vont plutôt dans Fixes.');
   }
   function envRow(r, s) {
     const env = r.env, goal = env.type === 'goal';
@@ -377,15 +382,16 @@
   function viewFixes(top, view) {
     const t = today();
     top.append(titleBar('Revenus et charges fixes', h('button', { class: 'btn small', onclick: () => openRecurring(null) }, 'Ajouter')));
-    if (!state.recurring.length) {
-      view.append(h('section', { class: 'empty' }, h('p', {}, 'Salaire, loyer, abonnements, assurance, prêt : tout ce qui revient à date fixe, chaque mois, chaque trimestre ou chaque année.'),
+    const own = state.recurring.filter((r) => !r.sub);
+    if (!own.length) {
+      view.append(h('section', { class: 'empty' }, h('p', {}, 'Salaire, loyer, assurance, prêt : tout ce qui revient à date fixe, chaque mois, chaque trimestre ou chaque année. Les abonnements ont leur propre onglet.'),
         h('button', { class: 'btn', onclick: () => openRecurring(null, 'income') }, 'Ajouter mon salaire'),
         h('button', { class: 'btn ghost', onclick: () => openRecurring(null, 'expense') }, 'Ajouter une charge')));
       return;
     }
     const groups = [['Revenus', (r) => r.kind === 'income'], ['Prêts', (r) => r.kind === 'expense' && !!r.schedule], ['Charges fixes', (r) => r.kind === 'expense' && !r.schedule]];
     groups.forEach((g) => {
-      const items = state.recurring.filter(g[1]);
+      const items = own.filter(g[1]);
       if (!items.length) return;
       const total = C.sum(items.map((it) => { const n = C.nextOccurrence(state, it, t); return n && (it.every || 1) === 1 ? n.amount : 0; }));
       view.append(h('section', { class: 'block' },
@@ -401,6 +407,13 @@
             h('span', { class: cl('amt', it.kind === 'income' && 'pos') }, n ? eur(n.amount) : '–')));
         }))));
     });
+    const subs = state.recurring.filter((r) => r.sub);
+    if (subs.length) {
+      const st = C.subStats(state, t);
+      view.append(h('section', { class: 'block' }, h('ul', { class: 'rows' }, h('li', {}, h('button', { class: 'row', onclick: () => go('abos') },
+        h('span', { class: 'row-main' }, h('span', { class: 'row-t' }, 'Abonnements'), h('span', { class: 'row-s' }, st.count + ' actif' + (st.count > 1 ? 's' : '') + ', détail dans l’onglet Abonnements')),
+        h('span', { class: 'amt' }, eur0(st.monthly) + ' / mois'))))));
+    }
   }
 
   function openRecurring(item, kindHint) {
@@ -532,6 +545,152 @@
     });
   }
 
+  /* ====================================================== ABONNEMENTS ====================================================== */
+  const PERIODS = [[1, 'Mensuel'], [3, 'Trimestriel'], [6, 'Semestriel'], [12, 'Annuel']];
+  const periodLabel = (e) => (PERIODS.find((p) => p[0] === e) || [0, 'tous les ' + e + ' mois'])[1].toLowerCase();
+  const STATUS = [['actif', 'Actif'], ['suspendu', 'Suspendu'], ['resilie', 'Résilié']];
+  function barRow(label, ratio, right) {
+    return h('li', {}, h('span', { class: 'bar-l' }, label), h('span', { class: 'bar' }, h('i', { style: 'width:' + Math.max(2, Math.min(100, ratio * 100)).toFixed(1) + '%' })), h('span', { class: 'bar-r' }, right));
+  }
+  function viewSubs(top, view) {
+    const t = today(), M = t.slice(0, 7);
+    top.append(titleBar('Abonnements', h('button', { class: 'btn small', onclick: () => openSub(null) }, 'Ajouter')));
+    const all = state.recurring.filter((r) => r.sub);
+    if (!all.length) {
+      view.append(h('section', { class: 'empty' },
+        h('p', {}, 'Netflix, Spotify, salle de sport, cloud… Ajoute chaque abonnement avec son montant et une date de prélèvement : l’appli calcule le coût par mois et par an, et le prochain prélèvement.'),
+        h('button', { class: 'btn', onclick: () => openSub(null) }, 'Ajouter un abonnement')));
+      return;
+    }
+    const st = C.subStats(state, t);
+    view.append(h('div', { class: 'strip' }, stat('Par mois', eur(st.monthly)), stat('Par an', eur0(st.annual)), stat('Actifs', String(st.count), null, 'moy. ' + eur(st.avg))));
+    const facts = [];
+    if (st.next) facts.push(['Prochain prélèvement', st.next.item.name + ', ' + dayShort(st.next.date)]);
+    if (st.income > 0) facts.push(['Poids dans tes revenus du mois', Math.round((st.monthly / st.income) * 100) + ' %']);
+    if (st.toCancel.length) facts.push(['À résilier', st.toCancel.length + ', soit ' + eur(st.toCancelMonthly) + ' par mois']);
+    if (st.savings > 0) facts.push(['Économie annuelle grâce aux résiliés', eur(st.savings)]);
+    if (facts.length) view.append(h('ul', { class: 'facts' }, facts.map((f) => h('li', {}, h('span', {}, f[0]), h('b', {}, f[1])))));
+    if (st.types.length) {
+      view.append(h('section', { class: 'block' }, h('div', { class: 'block-h' }, h('h2', {}, 'Répartition par type')),
+        h('ul', { class: 'bars' }, st.types.map((x) => barRow(x.type, x.pct, eur(x.monthly) + ' · ' + Math.round(x.pct * 100) + ' %')))));
+    }
+    const status = (r) => r.status || 'actif';
+    const n = (k) => all.filter((r) => status(r) === k).length;
+    view.append(h('div', { class: 'chips' },
+      [['actif', 'Actifs (' + n('actif') + ')'], ['suspendu', 'Suspendus'], ['resilie', 'Résiliés'], ['tous', 'Tous']].map((c) => h('button', { class: cl('chip', ui.subFilter === c[0] && 'on'), onclick: () => { ui.subFilter = c[0]; render(); } }, c[1]))));
+    view.append(h('div', { class: 'chips' },
+      [['date', 'Par date'], ['cout', 'Plus chers d’abord']].map((c) => h('button', { class: cl('chip small', ui.subSort === c[0] && 'on'), onclick: () => { ui.subSort = c[0]; render(); } }, c[1]))));
+    const monthly = (r) => C.monthlyCost(r, M);
+    const nextOf = (r) => { const o = C.nextOccurrence(state, r, t); return o ? o.date : '9999'; };
+    const list = all.filter((r) => ui.subFilter === 'tous' || status(r) === ui.subFilter)
+      .sort(ui.subSort === 'cout' ? (a, b) => monthly(b) - monthly(a) : (a, b) => (nextOf(a) < nextOf(b) ? -1 : nextOf(a) > nextOf(b) ? 1 : 0));
+    if (!list.length) { view.append(h('p', { class: 'muted' }, 'Aucun abonnement dans cette liste.')); return; }
+    view.append(h('ul', { class: 'rows' }, list.map((r) => {
+      const o = C.nextOccurrence(state, r, t);
+      const amount = C.stepAmount(r.steps, M, r.amount);
+      const sub = [r.subType || 'Autre', periodLabel(r.every || 1), status(r) === 'actif' ? (o ? 'prochain ' + dayShort(o.date) : null) : null].filter(Boolean).join(' · ');
+      return h('li', {}, h('button', { class: 'row', onclick: () => openSub(r) },
+        h('span', { class: 'row-main' },
+          h('span', { class: 'row-t' }, r.name, r.toCancel && status(r) === 'actif' ? h('em', { class: 'tag' }, 'à résilier') : null, status(r) !== 'actif' ? h('em', { class: 'tag dim' }, status(r) === 'resilie' ? 'résilié' : 'suspendu') : null),
+          h('span', { class: 'row-s' }, sub)),
+        h('span', { class: cl('amt', status(r) !== 'actif' && 'dim') }, eur(amount), (r.every || 1) > 1 ? h('small', { class: 'sub-m' }, '≈ ' + eur(monthly(r)) + ' / mois') : null)));
+    })));
+  }
+
+  function openSub(item) {
+    const isNew = !item, t = today();
+    const it = item ? JSON.parse(JSON.stringify(item)) : {
+      id: C.uid(), sub: true, kind: 'expense', name: '', group: 'Abonnements', accountId: 'courant', every: 1, start: t, end: null, match: '',
+      subType: 'Autre', status: 'actif', statusSince: null, toCancel: false, steps: [{ from: t.slice(0, 7), amount: 0 }], overrides: {}
+    };
+    openSheet(isNew ? 'Nouvel abonnement' : it.name, (close) => {
+      const name = textIn(it.name, 'Netflix, Fitness Park, iCloud…');
+      const type = h('select', {}, C.SUB_TYPES.map((x) => h('option', { value: x, selected: (it.subType || 'Autre') === x }, x)));
+      const amount = numIn(isNew ? '' : C.stepAmount(it.steps, t.slice(0, 7), it.amount));
+      const period = h('select', {}, PERIODS.map((p) => h('option', { value: p[0], selected: (it.every || 1) === p[0] }, p[1])));
+      const date = dateIn(it.start);
+      const status = seg(STATUS, it.status || 'actif', () => sync());
+      const cancel = h('input', { type: 'checkbox', checked: !!it.toCancel });
+      const match = textIn(it.match, 'ex. NETFLIX');
+      const info = h('p', { class: 'calc' });
+      function draft() {
+        const v = num(amount), e = +period.value;
+        const d = Object.assign({}, it, { every: e, start: date.value || t, status: status.get() });
+        d.steps = it.steps.map((s) => ({ from: s.from, amount: s.amount }));
+        d.steps[d.steps.length - 1].amount = isNaN(v) ? 0 : v;
+        d.steps[0].from = d.start.slice(0, 7);
+        return d;
+      }
+      function sync() {
+        const d = draft(), m = C.monthlyCost(d, t.slice(0, 7));
+        const o = d.status === 'actif' ? C.nextOccurrence(state, d, t) : null;
+        info.textContent = 'Environ ' + eur(m) + ' par mois, ' + eur(m * 12) + ' par an.' + (o ? ' Prochain prélèvement le ' + dayShort(o.date) : '');
+      }
+      [amount, period, date].forEach((x) => x.addEventListener('input', sync)); sync();
+      return h('div', { class: 'sheet-b' }, field('Service', name), field('Type', type), field('Montant', amount, 'Le montant prélevé à chaque échéance.'), field('Périodicité', period),
+        field('Date d’un prélèvement', date, 'N’importe lequel, passé ou à venir : l’appli en déduit les suivants.'), info, field('Statut', status),
+        field('', h('span', { class: 'chk' }, cancel, 'À résilier, je veux m’en débarrasser')),
+        field('Mot du relevé bancaire (facultatif)', match, 'Pour rapprocher automatiquement le prélèvement quand tu importes un CSV.'),
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn', onclick: () => {
+            if (!name.value.trim()) return toast('Donne un nom à l’abonnement.');
+            const d = draft();
+            if (!(d.steps[d.steps.length - 1].amount > 0)) return toast('Indique le montant prélevé.');
+            if (!date.value) return toast('Indique une date de prélèvement.');
+            const was = it.status || 'actif';
+            const out = Object.assign({}, it, { name: name.value.trim(), subType: type.value, every: d.every, start: d.start, day: +d.start.slice(8, 10), steps: d.steps, status: d.status, toCancel: cancel.checked, match: match.value.trim(), sub: true, kind: 'expense', group: it.group || 'Abonnements' });
+            if (d.status !== 'actif') out.statusSince = (was !== 'actif' && it.statusSince) ? it.statusSince : t; else out.statusSince = null;
+            const i = state.recurring.findIndex((x) => x.id === it.id);
+            if (i >= 0) state.recurring[i] = out; else state.recurring.push(out);
+            commit(); close();
+          } }, 'Enregistrer'),
+          isNew ? null : h('button', { class: 'btn danger ghost', onclick: () => { if (confirm('Supprimer « ' + it.name + ' » de la liste ?')) { C.deleteRecurring(state, it.id); commit(); close(); } } }, 'Supprimer')));
+    });
+  }
+
+  /* ====================================================== BILAN DE L'ANNÉE ====================================================== */
+  function viewYear(view) {
+    const y = ui.year, ys = C.yearSummary(state, y);
+    view.append(h('div', { class: 'mswitch' },
+      h('button', { class: 'icon-btn', 'aria-label': 'Année précédente', onclick: () => { ui.year = y - 1; render(); } }, '‹'),
+      h('strong', {}, String(y)),
+      h('button', { class: 'icon-btn', 'aria-label': 'Année suivante', onclick: () => { ui.year = y + 1; render(); } }, '›')));
+    if (!ys.monthsWithData) {
+      view.append(h('section', { class: 'empty' }, h('p', {}, 'Aucune opération en ' + y + '. Le bilan se remplit avec les opérations que tu importes ou ajoutes dans l’onglet Opérations.')));
+      return;
+    }
+    view.append(h('div', { class: 'strip' }, stat('Revenus', eur0(ys.totalInc), 'pos'), stat('Dépenses', eur0(ys.totalExp), null), stat('Épargne nette', eur0(ys.net), ys.net < 0 ? 'neg' : 'pos')));
+    const facts = [['Taux d’épargne', ys.rate === null ? '–' : Math.round(ys.rate * 100) + ' %'], ['Dépense moyenne par mois', eur0(ys.avgExp)], ['Mois avec des opérations', String(ys.monthsWithData)]];
+    view.append(h('ul', { class: 'facts' }, facts.map((f) => h('li', {}, h('span', {}, f[0]), h('b', {}, f[1])))));
+    view.append(h('section', { class: 'block' }, h('div', { class: 'block-h' }, h('h2', {}, 'Mois par mois'), h('span', { class: 'muted small' }, 'revenus et dépenses')), yearChart(ys),
+      h('ul', { class: 'ends' }, ys.inc.map((v, i) => (v === 0 && ys.exp[i] === 0) ? null : h('li', {}, h('span', {}, cap(F({ month: 'long' }).format(utc(y + '-' + String(i + 1).padStart(2, '0') + '-01')))), h('span', { class: 'ym' }, h('small', {}, eur0(v) + ' − ' + eur0(ys.exp[i])), h('b', { class: ys.solde[i] < 0 ? 'neg' : '' }, eurS(ys.solde[i]).replace(/,00/, ''))))))));
+    if (ys.expRows.length) {
+      const max = ys.expRows[0].total || 1;
+      view.append(h('section', { class: 'block' }, h('div', { class: 'block-h' }, h('h2', {}, 'Dépenses par catégorie')),
+        h('ul', { class: 'bars' }, ys.expRows.map((r) => barRow(r.name, r.total / max, eur0(r.total) + ' · ' + (ys.totalExp > 0 ? Math.round((r.total / ys.totalExp) * 100) : 0) + ' %')))));
+    }
+    if (ys.incRows.length) {
+      view.append(h('section', { class: 'block' }, h('div', { class: 'block-h' }, h('h2', {}, 'Revenus par catégorie')),
+        h('ul', { class: 'facts' }, ys.incRows.map((r) => h('li', {}, h('span', {}, r.name), h('b', {}, eur0(r.total)))))));
+    }
+  }
+  function yearChart(ys) {
+    const W = 340, H = 130, pl = 4, pr = 4, pt = 8, pb = 18;
+    const max = Math.max(1, ...ys.inc, ...ys.exp);
+    const gw = (W - pl - pr) / 12, bw = gw * 0.34;
+    const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart', role: 'img', 'aria-label': 'Revenus et dépenses par mois' });
+    const hgt = (v) => ((H - pt - pb) * v) / max;
+    ys.inc.forEach((v, i) => {
+      const x = pl + gw * i + gw * 0.12;
+      svg.append(sv('rect', { x: x, y: H - pb - hgt(v), width: bw, height: Math.max(0, hgt(v)), rx: 2, class: 'yb-in' }),
+        sv('rect', { x: x + bw + 1.5, y: H - pb - hgt(ys.exp[i]), width: bw, height: Math.max(0, hgt(ys.exp[i])), rx: 2, class: 'yb-out' }));
+      const l = sv('text', { x: pl + gw * i + gw / 2, y: H - 5, class: 'ch-t', 'text-anchor': 'middle' }); l.textContent = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'][i];
+      svg.append(l);
+    });
+    svg.append(sv('line', { x1: pl, x2: W - pr, y1: H - pb, y2: H - pb, class: 'ch-zero' }));
+    return svg;
+  }
+
   /* ====================================================== OPÉRATIONS ====================================================== */
   function viewOps(top, view) {
     const M = ui.opsMonth;
@@ -583,6 +742,7 @@
       const cat = h('select', {},
         h('option', { value: '' }, 'Non classé'),
         state.envelopes.length ? h('optgroup', { label: 'Enveloppes' }, state.envelopes.map((e) => h('option', { value: e.id, selected: x.cat === e.id }, e.name))) : null,
+        h('optgroup', { label: 'Revenus' }, Object.keys(C.REV_CATS).map((k) => h('option', { value: k, selected: x.cat === k }, C.REV_CATS[k]))),
         h('optgroup', { label: 'Autre' }, h('option', { value: 'interne', selected: x.cat === 'interne' }, 'Virement interne (ne compte pas)')));
       if (x.cat) cat.value = x.cat;
       const remember = h('input', { type: 'checkbox', checked: true });
@@ -651,7 +811,7 @@
         const last = parsed.rows[parsed.rows.length - 1];
         info.replaceChildren(
           h('p', { class: 'calc' }, parsed.rows.length + ' opérations lues dans ' + fileName + ' · ' + p.fresh + ' nouvelles · ' + p.dupes + ' déjà importées' + (parsed.skipped.length ? ' · ' + parsed.skipped.length + ' ligne(s) ignorée(s)' : '') + '.'),
-          last && last.balance !== null ? h('p', { class: 'calc' }, 'Solde après import : ' + eur(last.balance) + ' au ' + dayShort(last.date) + '.') : null,
+          last && last.balance !== null ? h('p', { class: 'calc' }, 'Solde après import : ' + eur(last.balance) + ' au ' + dayShort(last.date)) : null,
           p.fresh ? h('ul', { class: 'rows mini' }, p.freshRows.slice(-5).reverse().map((r) => h('li', {}, h('span', { class: 'row' }, h('span', { class: 'row-main' }, h('span', { class: 'row-t' }, r.label), h('span', { class: 'row-s' }, dayShort(r.date))), h('span', { class: cl('amt', r.amount > 0 && 'pos') }, eurS(r.amount)))))) : null);
         btn.disabled = !p.fresh; btn.textContent = p.fresh ? 'Importer ' + p.fresh + ' opération' + (p.fresh > 1 ? 's' : '') : 'Rien de nouveau';
       }
@@ -686,7 +846,7 @@
 
   /* ====================================================== RÉGLAGES ====================================================== */
   function viewSettings(top, view) {
-    top.append(titleBar('Réglages'));
+    top.append(titleBar('Réglages', h('button', { class: 'btn ghost small', onclick: () => go(ui.prev || 'accueil') }, 'Terminé')));
     view.append(h('section', { class: 'block' }, h('div', { class: 'block-h' }, h('h2', {}, 'Comptes')),
       h('ul', { class: 'rows' }, state.accounts.map((a) => {
         const b = C.currentBalance(state, a.id);

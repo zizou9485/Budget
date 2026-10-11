@@ -113,6 +113,7 @@
     const date = dateIn(M, item.day || +item.start.slice(8, 10));
     if (date < item.start) return [];
     if (item.end && date > item.end) return [];
+    if (item.status && item.status !== 'actif' && item.statusSince && date >= item.statusSince) return [];
     let amt = stepAmount(item.steps, M, item.amount || 0);
     if (!raw && item.overrides && Object.prototype.hasOwnProperty.call(item.overrides, M)) amt = item.overrides[M];
     if (amt === null || amt === undefined) return [];
@@ -497,12 +498,76 @@
     return { added: added, dupes: dupes, merged: merged, matched: matched, toSort: unclassifiedList(state).length };
   }
 
+  /* ---------- abonnements ---------- */
+  const SUB_TYPES = ['Streaming vidéo', 'Musique & audio', 'Jeux vidéo', 'Cloud & logiciels', 'IA & outils', 'Sport & bien-être', 'Presse & lecture', 'Téléphone & internet', 'Transport', 'Autre'];
+  function monthlyCost(item, M) { return stepAmount(item.steps, M, item.amount || 0) / Math.max(1, item.every || 1); }
+  function subStats(state, today) {
+    const M = today.slice(0, 7);
+    const all = state.recurring.filter((r) => r.sub);
+    const active = all.filter((r) => (r.status || 'actif') === 'actif');
+    const monthly = round2(sum(active.map((r) => monthlyCost(r, M))));
+    const byType = {};
+    active.forEach((r) => { const t = r.subType || 'Autre'; byType[t] = (byType[t] || 0) + monthlyCost(r, M); });
+    const types = Object.keys(byType).map((t) => ({ type: t, monthly: round2(byType[t]), pct: monthly > 0 ? byType[t] / monthly : 0 })).sort((a, b) => b.monthly - a.monthly);
+    let next = null;
+    active.forEach((r) => {
+      const o = nextOccurrence(state, r, today);
+      if (o && (!next || o.date < next.date)) next = { item: r, date: o.date, amount: o.amount };
+    });
+    const toCancel = active.filter((r) => r.toCancel);
+    const savings = round2(sum(all.filter((r) => r.status === 'resilie').map((r) => monthlyCost(r, M) * 12)));
+    const income = round2(sum(occurrencesForMonth(state, M).filter((o) => o.kind === 'income').map((o) => o.amount)));
+    return {
+      count: active.length, monthly: monthly, annual: round2(monthly * 12), avg: active.length ? round2(monthly / active.length) : 0,
+      types: types, next: next, toCancel: toCancel, toCancelMonthly: round2(sum(toCancel.map((r) => monthlyCost(r, M)))),
+      savings: savings, income: income
+    };
+  }
+
+  /* ---------- bilan annuel (à partir des opérations réelles) ---------- */
+  const REV_CATS = {
+    'rev:salaire': 'Salaire / alternance', 'rev:aides': 'Aides (CAF, APL…)', 'rev:remb': 'Remboursements',
+    'rev:ventes': 'Ventes & revenus annexes', 'rev:autres': 'Autres revenus'
+  };
+  function yearSummary(state, year) {
+    year = String(year);
+    const z = () => new Array(12).fill(0);
+    const inc = z(), exp = z(), incCat = {}, expCat = {};
+    const bump = (map, name, mi, v) => { (map[name] = map[name] || z())[mi] += v; };
+    state.tx.forEach((t) => {
+      if (t.date.slice(0, 4) !== year || !isBudgetAcc(state, t.accountId) || t.cat === 'interne') return;
+      const mi = +t.date.slice(5, 7) - 1;
+      const item = t.occKey ? state.recurring.find((r) => r.id === t.occKey.split('@')[0]) : null;
+      const env = t.cat && !REV_CATS[t.cat] ? state.envelopes.find((e) => e.id === t.cat) : null;
+      if (t.amount > 0 && !env) {
+        const name = REV_CATS[t.cat] || (item ? (item.group || REV_CATS['rev:salaire']) : REV_CATS['rev:autres']);
+        inc[mi] += t.amount; bump(incCat, name, mi, t.amount);
+      } else {
+        const name = env ? env.name : (item ? (item.group || item.name) : 'Non classé');
+        exp[mi] += -t.amount; bump(expCat, name, mi, -t.amount);
+      }
+    });
+    const rows = (map) => Object.keys(map).map((name) => {
+      const vals = map[name].map(round2), total = round2(sum(vals)), n = vals.filter((v) => v !== 0).length;
+      return { name: name, vals: vals, total: total, avg: n ? round2(total / n) : 0 };
+    }).sort((a, b) => b.total - a.total);
+    const totalInc = round2(sum(inc)), totalExp = round2(sum(exp));
+    const monthsWithData = inc.filter((v, i) => v !== 0 || exp[i] !== 0).length;
+    return {
+      year: year, inc: inc.map(round2), exp: exp.map(round2), solde: inc.map((v, i) => round2(v - exp[i])),
+      totalInc: totalInc, totalExp: totalExp, net: round2(totalInc - totalExp),
+      rate: totalInc > 0 ? (totalInc - totalExp) / totalInc : null, monthsWithData: monthsWithData,
+      avgExp: monthsWithData ? round2(totalExp / monthsWithData) : 0, incRows: rows(incCat), expRows: rows(expCat)
+    };
+  }
+
   return {
     uid, round2, sum, ymParse, addMonths, monthDiff, daysInMonth, dateIn, addDays, dayDiff, todayISO,
     defaultState, normalizeState, mergeState, account, isBudgetAcc, currentBalance, totalBudgetBalance, setBalance,
     stepAmount, itemOccurrences, occurrencesForMonth, nextOccurrence, loanStats, markPaid, unmarkPaid, deleteTx,
     deleteRecurring, deleteEnvelope, envSpent, goalSaved, goalSavedBefore, envBudget, unclassified, unclassifiedList,
     monthSummary, dailyAllowance, simulate, parseNumber, parseDate, parseCSV, previewImport, importRows, normLabel,
-    applyRules, autoMatch
+    applyRules, autoMatch,
+    SUB_TYPES, REV_CATS, monthlyCost, subStats, yearSummary
   };
 });

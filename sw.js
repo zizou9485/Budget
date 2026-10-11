@@ -1,5 +1,5 @@
 /* Cache hors-ligne. Change VERSION quand tu modifies les fichiers pour forcer la mise à jour. */
-const VERSION = 'budget-v1';
+const VERSION = 'budget-v2';
 const FILES = ['./', 'index.html', 'styles.css', 'core.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {
